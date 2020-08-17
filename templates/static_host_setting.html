@@ -1,0 +1,230 @@
+{% extends "base.html" %} {% block content %}
+
+<form id="add-rule" name="add-rule">
+    {{ macros.setting_input_text('location_path', 'Location Path', desc=['요청을 처리할 URL 경로']) }}
+    {{ macros.setting_input_text('www_root', 'WWW Root', desc=['연결할 로컬 디렉토리 경로']) }}
+    {{ macros.setting_radio('auth_type', '인증', ['없음', 'SJVA auth']) }}
+    {{ macros.setting_button([['add-rule-btn', '추가하기']]) }}
+</form>
+
+<div class="mt-3 d-flex w-100 justify-content-between">
+    <h6 class="mt-2 mb-0" style="flex: 1;">등록된 규칙 <span class="text-muted small" id="rule-loaded"></span></h6>
+    <button id="clear-rule-btn" name="clear-rule-btn" class="btn btn-sm btn-outline-danger">전체삭제</button>
+</div>
+
+
+<div class="mt-3 mb-3" id="registered-rules">
+
+<template id="item-template">
+    <div class="card mb-3 animated fadeIn shadow-sm">
+        <div class="card-body">
+            <div class="d-flex w-100 justify-content-between" id="card-title">
+                <h6 class="card-title text-truncate" style="flex: 1;" id="location-path" title="Location Path"></h6>
+                <!--TODO: a tag 적용-->
+                <p class="text-muted" id="creation-date" title=""></p>
+            </div>
+            <p class="card-text text-muted text-truncate" id="other-details"></p>
+            <a href="#" class="card-link text-danger" id="remove-item">규칙삭제</a>
+        </div>
+    </div>
+</template>
+
+</div>
+
+<!-- element to trigger the IntersectionObserver -->
+<div class="d-flex justify-content-center mb-3" id="sentinel">
+    <div class="spinner-border" role="status"></div>
+</div>
+<!--전체-->
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/3.7.0/animate.min.css">
+
+
+<script type="text/javascript">
+    var package_name = "{{arg['package_name']}}";
+    var current_rule_size = "{{arg['rule_size']}}";
+    var ddns = "{{arg['ddns']}}";
+
+    // Get references to the dom elements
+    var scroller = document.querySelector("#registered-rules");
+    var template = document.querySelector('#item-template');
+    var loaded = document.querySelector("#rule-loaded");
+    var sentinel = document.querySelector('#sentinel');
+
+    var counter = 0;
+
+    // Function to request new items and render to the dom
+    // https://pythonise.com/categories/javascript/infinite-lazy-loading
+    function loadItems() {
+        // Use fetch to request data and pass the counter value in the QS
+        fetch(`/${package_name}/ajax/rule?c=${counter}`).then((response) => {
+            response.json().then((res) => {
+                if (!res.success) {
+                    sentinel.innerHTML = `ERROR: ${res.log}`;
+                    return;
+                }
+                var data = res.ret;
+                if (!data.length) {
+                    sentinel.innerHTML = "No more items";
+                    loaded.innerText = `${counter}/${current_rule_size}`;
+                    return;
+                }
+                // Iterate over the items in the response
+                for (var i = 0; i < data.length; i++) {
+                    render_single_item(data[i], false);
+                    // Increment the counter
+                    counter += 1;
+                    // Update the counter
+                    loaded.innerText = `${counter}/${current_rule_size}`;
+                }
+            })
+        })
+    }
+
+    // Create a new IntersectionObserver instance
+    var intersectionObserver = new IntersectionObserver(entries => {
+        // Uncomment below to see the entry.intersectionRatio when
+        // the sentinel comes into view
+
+        // entries.forEach(entry => {
+        //   console.log(entry.intersectionRatio);
+        // })
+
+        // If intersectionRatio is 0, the sentinel is out of view
+        // and we don't need to do anything. Exit the function
+        if (entries[0].intersectionRatio <= 0) {
+            return;
+        }
+
+        // Call the loadItems function
+        loadItems();
+    });
+
+    // Instruct the IntersectionObserver to watch the sentinel
+    intersectionObserver.observe(sentinel);
+
+    // add-rule-btn 버튼
+    $("body").on('click', '#add-rule-btn', function(e) {
+        e.preventDefault();
+        $.ajax({
+            url: '/' + package_name + '/ajax/add_rule',
+            type: "POST",
+            cache: false,
+            dataType: "json",
+            data: get_formdata('#add-rule'),
+            success: function(data) {
+                if (data.success) {
+                    render_single_item(data.ret);
+                    current_rule_size += 1;
+                    counter += 1;
+                    loaded.innerText = `${counter}/${current_rule_size}`;
+                    $.notify('<strong>추가하였습니다.</strong>', {
+                        type: 'success'
+                    });
+                } else {
+                    $.notify('<strong>실패하였습니다.</strong><br>' + data.log, {
+                        type: 'warning'
+                    });
+                }
+            }
+        });
+    });
+
+    function render_single_item(data, newly_added=true) {
+        const datetime = new Date(data.creation_date);
+        const datetimeFormat = new Intl.DateTimeFormat('en-US', {
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            hour12: false,
+            minute: 'numeric'
+        });
+        
+        // Clone the HTML template
+        let template_clone = template.content.cloneNode(true);
+        
+        template_clone.querySelector("#location-path").innerHTML = `
+            <a href="${ddns + data.location_path}" target="_blank">${data.location_path}</a>
+        `;
+        template_clone.querySelector("#creation-date").title = data.creation_date;
+        template_clone.querySelector("#creation-date").innerHTML = datetimeFormat.format(datetime);
+        if (data.auth_type == 0) {
+            var auth_name = '없음';
+        } else if (data.auth_type == 1) {
+            var auth_name = 'SJVA'
+        }
+        template_clone.querySelector("#other-details").innerHTML = `
+            <span class="text-muted">연결 폴더: ${data.www_root}</span><br>
+            <span class="text-muted">인증 타입: ${auth_name}</span>
+        `;
+
+        // Append template to dom
+        if (newly_added) {
+            scroller.prepend(template_clone);
+        } else {
+            scroller.appendChild(template_clone);
+        }
+    }
+
+    $("body").on('click', '#remove-item', function(e) {
+        e.preventDefault();
+        var lpath = $(this).siblings().find('#location-path').text().trim();
+        var card = $(this).parent().parent();
+        $.ajax({
+            url: '/' + package_name + '/ajax/rule',
+            type: 'POST',
+            cache: false,
+            data: {
+                'act': 'del',
+                'location_path': lpath
+            },
+            dataType: "json",
+            success: function (data) {
+                if (data.success) {
+                    $(card).fadeOut(300, function() { $(card).remove(); });
+                    current_rule_size -= 1;
+                    counter -= 1;
+                    loaded.innerText = `${counter}/${current_rule_size}`;
+                    $.notify('<strong>삭제하였습니다.</strong><br>재시작 후 적용됩니다.', {
+                        type: 'success'
+                    });
+                } else {
+                    $.notify('<strong>실패하였습니다!!!</strong><br>' + data.log, {
+                        type: 'warning'
+                    });
+                }
+            }
+        });        
+    });
+    
+    $("body").on('click', '#clear-rule-btn', function(e) {
+        e.preventDefault();
+        $.ajax({
+            url: '/' + package_name + '/ajax/rule',
+            type: "POST",
+            cache: false,
+            dataType: "json",
+            data: {'act': "clear"},
+            success: function(data) {
+                if (data.success) {
+                    scroller.querySelectorAll('*').forEach(n => n.remove());
+                    current_rule_size = 0;
+                    counter = 0;
+                    loaded.innerText = `${counter}/${current_rule_size}`;
+                    $.notify('<strong>삭제하였습니다.</strong><br>재시작 후 적용됩니다.', {
+                        type: 'success'
+                    });
+                } else {
+                    $.notify('<strong>실패하였습니다!!!</strong><br>' + data.log, {
+                        type: 'warning'
+                    });
+                }
+            }
+        });
+    });
+
+</script>
+
+
+{% endblock %}
