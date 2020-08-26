@@ -3,10 +3,16 @@
 # python
 import os
 import re
+import cgi
 import sys
 import json
 import traceback
 from datetime import datetime
+import urllib
+import shutil
+import subprocess
+import tarfile, zipfile
+
 # third-party
 import werkzeug
 from flask import send_from_directory, redirect, request
@@ -74,20 +80,6 @@ class Logic(object):
             logger.error('Exception:%s', e)
             logger.error(traceback.format_exc())
 
-    @staticmethod
-    def setting_save(req):
-        try:
-            for key, value in req.form.items():
-                logger.debug('Key:%s Value:%s', key, value)
-                entity = db.session.query(ModelSetting).filter_by(key=key).with_for_update().first()
-                entity.value = value
-            db.session.commit()
-            return True
-        except Exception as e:
-            logger.error('Exception:%s', e)
-            logger.error(traceback.format_exc())
-            return False
-
     # 기본 구조 End
     ##################################################################
     @staticmethod
@@ -109,11 +101,89 @@ class Logic(object):
 
 
     @staticmethod
-    def is_already_registered(location_path):
-        rules = [str(r) for r in app.url_map.iter_rules()]
-        rules = [r.split('<')[0].rstrip('/') + '/' for r in rules if r != '/']
+    def check_lpath(location_path):
+        if not location_path.startswith('/'):
+            raise ValueError('Location Path는 /로 시작해야 합니다.')
+
+        dangerous_lpath = ['/']
         lpath = location_path.rstrip('/') + '/'
-        return any(lpath.startswith(r) for r in rules)
+        rules = [str(r) for r in app.url_map.iter_rules() if str(r) not in dangerous_lpath]
+        for rr in sorted(rules):
+            logger.debug(rr)
+        reserved_lpath = [r.split('<')[0].rstrip('/') + '/' for r in rules if '<' in r]
+        if any(lpath.startswith(r) for r in reserved_lpath):
+            raise ValueError('예약된 Location Path입니다.')
+        exact_rules = [r.rstrip('/') + '/' for r in rules if '<' not in r]
+        if any(lpath == r for r in exact_rules):
+            raise ValueError('이미 등록된 Location Path입니다.')
+
+
+    @staticmethod
+    def install_project(install_cmd, install_dir):
+        if len(install_cmd) < 2:
+            raise ValueError('잘못된 설치 명령: 설치 URL이 없음')
+        was_dir = os.path.isdir(install_dir)
+        if not was_dir:
+            os.makedirs(install_dir)
+        
+        try:
+            if install_cmd[0] == 'git':
+                git_repo = install_cmd[1].split('@')
+                git_cmd = ['git', '-C', install_dir, 'clone']
+                if len(git_repo) > 1 and git_repo[1]:
+                    git_cmd += ['-b', git_repo[1], git_repo[0]]
+                else:
+                    git_cmd += [git_repo[0]]
+                subprocess.check_output(git_cmd, stderr=subprocess.STDOUT)
+                basename = re.sub('.git', '', os.path.basename(git_repo[0]), flags=re.IGNORECASE)
+                www_root = os.path.join(install_dir, basename)
+            elif install_cmd[0] == 'tar':
+                temp_fname, headers = urllib.urlretrieve(install_cmd[1])
+                tar = tarfile.open(temp_fname)
+                basename = os.path.commonprefix(tar.getnames())
+                if basename:
+                    extract_to = install_dir
+                else:
+                    try:
+                        _, params = cgi.parse_header(headers['Content-Disposition'])
+                        remote_fname = params['filename']
+                    except KeyError:
+                        remote_fname = os.path.basename(install_cmd[1])
+                    basename = re.sub('.tar', '', remote_fname, flags=re.IGNORECASE)
+                    extract_to = os.path.join(install_dir, basename)
+                www_root = os.path.join(install_dir, basename)
+                tar.extractall(extract_to)
+            elif install_cmd[0] == 'zip':
+                temp_fname, headers = urllib.urlretrieve(install_cmd[1])
+                zip = zipfile.ZipFile(temp_fname)
+                basename = os.path.commonprefix(zip.namelist())
+                if basename:
+                    extract_to = install_dir
+                else:
+                    try:
+                        _, params = cgi.parse_header(headers['Content-Disposition'])
+                        remote_fname = params['filename']
+                    except KeyError:
+                        remote_fname = os.path.basename(install_cmd[1])
+                    basename = re.sub('.zip', '', remote_fname, flags=re.IGNORECASE)
+                    extract_to = os.path.join(install_dir, basename)
+                www_root = os.path.join(install_dir, basename)
+                zip.extractall(extract_to)
+            else:
+                raise NotImplementedError('지원하지 않는 설치 명령: %s' % install_cmd[0])
+
+            if len(install_cmd) > 2 and install_cmd[2]:
+                www_root = os.path.join(www_root, install_cmd[2])
+
+            return www_root
+        except subprocess.CalledProcessError as e:
+            if not was_dir:
+                shutil.rmtree(install_dir)
+            raise Exception(e.output.strip())
+        except Exception as e:
+            if not was_dir:
+                shutil.rmtree(install_dir)
+            raise e
 
 
 class StaticView(View):

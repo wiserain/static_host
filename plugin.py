@@ -6,6 +6,7 @@
 import os
 import traceback
 from datetime import datetime
+import shutil
 
 # third-party
 from flask import Blueprint, request, render_template, redirect, jsonify, Response
@@ -40,7 +41,7 @@ def plugin_unload():
 
 plugin_info = {
     "category_name": "tool",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "name": "static_host",
     "home": "https://github.com/wiserain/static_host",
     "more": "https://github.com/wiserain/static_host",
@@ -69,7 +70,6 @@ menu = {
 def home():
     return redirect('/%s/setting' % package_name)
 
-
 @blueprint.route('/<sub>')
 @login_required
 def detail(sub):
@@ -78,6 +78,15 @@ def detail(sub):
         arg['package_name'] = package_name
         arg['rule_size'] = len(ModelSetting.get_json('rules'))
         arg['ddns'] = SystemModelSetting.get('ddns').rstrip('/')
+        arg['project_template_list'] = [
+            ['', '선택하면 설치 명령이 자동 완성됩니다.'],
+            ['git|https://github.com/codedread/kthoom', 'https://github.com/codedread/kthoom'],
+            ['git|https://github.com/daleharvey/pacman', 'https://github.com/daleharvey/pacman'],
+            ['git|https://github.com/ziahamza/webui-aria2|docs', 'https://github.com/ziahamza/webui-aria2'],
+            ['git|https://github.com/SauravKhare/speedtest', 'https://github.com/SauravKhare/speedtest'],
+            ['tar|https://github.com/viliusle/miniPaint/archive/v4.2.4.tar.gz', 'https://github.com/viliusle/miniPaint'],
+            ['zip|https://github.com/mayswind/AriaNg/releases/download/1.1.6/AriaNg-1.1.6.zip', 'https://github.com/mayswind/AriaNg'],
+        ]
         return render_template('%s_setting.html' % package_name, sub=sub, arg=arg)
     elif sub == 'log':
         return render_template('log.html', package=package_name)
@@ -90,27 +99,21 @@ def detail(sub):
 @blueprint.route('/ajax/<sub>', methods=['GET', 'POST'])
 @login_required
 def ajax(sub):
-    # 설정 저장
-    if sub == 'setting_save':
-        try:
-            ret = Logic.setting_save(request)
-            return jsonify(ret)
-        except Exception as e: 
-            logger.error('Exception:%s', e)
-            logger.error(traceback.format_exc())
-    elif sub == 'add_rule':
-        try:
-            p = request.form.to_dict() if request.method == 'POST' else request.args.to_dict()
+    try:
+        p = request.form.to_dict() if request.method == 'POST' else request.args.to_dict()
+        if sub == 'add_rule':
             lpath = p.get('location_path', '')
-            www_root = p.get('www_root', '')
+            Logic.check_lpath(lpath)
 
-            if not lpath.startswith('/'):
-                return jsonify({'success': False, 'log': 'Location path는 /로 시작해야 합니다.'})
-            if Logic.is_already_registered(lpath):
-                return jsonify({'success': False, 'log': '이미 사용 중인 Location path입니다.'})            
-            if not os.path.isdir(www_root):
-                return jsonify({'success': False, 'log': '존재하지 않는 디렉토리 경로입니다.'})
-
+            if p.get('use_project_install') == 'True':
+                install_cmd = p.get('project_install_cmd').split('|')
+                install_dir = p.get('project_install_dir')
+                www_root = Logic.install_project(install_cmd, install_dir)
+            else:
+                www_root = p.get('www_root', '')
+                if not os.path.isdir(www_root):
+                    raise ValueError('존재하지 않는 디렉토리 경로입니다.')
+            
             new_rule = {
                 'location_path': lpath,
                 'www_root': www_root,
@@ -124,24 +127,18 @@ def ajax(sub):
             ModelSetting.set_json('rules', drules)
 
             return jsonify({'success': True, 'ret': new_rule})
-        except Exception as e: 
-            logger.error('Exception:%s', e)
-            logger.error(traceback.format_exc())
-            return jsonify({'success': False, 'log': str(e)})
-    elif sub == 'rule':
-        try:
-            p = request.form.to_dict() if request.method == 'POST' else request.args.to_dict()
+        elif sub == 'rule':
             act = p.get('act', '')
             ret = p.get('ret', 'list')
             lpath = p.get('location_path', '')
             drules = ModelSetting.get_json('rules')
             
             # apply action
-            if act == 'del' and lpath:
+            if act == 'del' or act == 'pur':
                 if lpath in drules:
+                    if act == 'pur':
+                        shutil.rmtree(drules[lpath]['www_root'])
                     del drules[lpath]
-            elif act == 'clear':
-                drules.clear()
 
             if act:
                 ModelSetting.set_json('rules', drules)
@@ -162,8 +159,19 @@ def ajax(sub):
                         lrules = lrules[counter:counter+pagesize]
                 return jsonify({'success': True, 'ret': lrules})
             else:
-                return jsonify({'success': False, 'log': 'Unknown return type: %s' % ret})
-        except Exception as e: 
-            logger.error('Exception:%s', e)
-            logger.error(traceback.format_exc())
-            return jsonify({'success': False, 'log': str(e)})
+                raise NotImplementedError('Unknown return type: %s' % ret)
+        elif sub == 'check_dir':
+            dir = p.get('dir', '')
+            if os.path.isdir(dir):
+                list_dir = os.listdir(dir)
+                in_total = len(list_dir)
+                export_only = 5
+                if in_total > export_only:
+                    list_dir = list_dir[:export_only] + ['and %s more ...' % (in_total-export_only)]
+                return jsonify({'success': True, 'len': in_total, 'list': list_dir})
+            else:
+                return jsonify({'success': True, 'len': -1})
+    except Exception as e:
+        logger.error('Exception:%s', e)
+        logger.error(traceback.format_exc())
+        return jsonify({'success': False, 'log': str(e)})
