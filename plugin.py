@@ -21,8 +21,8 @@ from system.model import ModelSetting as SystemModelSetting
 package_name = __name__.split('.')[0]
 logger = get_logger(package_name)
 
-from logic import Logic
-from model import ModelSetting
+from .logic import Logic
+from .model import ModelSetting
 
 blueprint = Blueprint(
     package_name, package_name,
@@ -41,7 +41,7 @@ def plugin_unload():
 
 plugin_info = {
     "category_name": "tool",
-    "version": "0.0.2",
+    "version": "0.0.3",
     "name": "static_host",
     "home": "https://github.com/wiserain/static_host",
     "more": "https://github.com/wiserain/static_host",
@@ -143,7 +143,7 @@ def ajax(sub):
             if act:
                 ModelSetting.set_json('rules', drules)
 
-            lrules = [val for _, val in drules.iteritems()]
+            lrules = [val for _, val in iter(drules.items())]
             if ret == 'count':
                 return jsonify({'success': True, 'ret': len(lrules)})
             elif ret == 'list':

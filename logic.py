@@ -8,7 +8,10 @@ import sys
 import json
 import traceback
 from datetime import datetime
-import urllib
+try:
+    from urllib import urlretrieve
+except ImportError:
+    from urllib.request import urlretrieve
 import shutil
 import subprocess
 import tarfile, zipfile
@@ -61,7 +64,7 @@ class Logic(object):
             Logic.db_init()
 
             # 편의를 위해 json 파일 생성
-            from plugin import plugin_info
+            from .plugin import plugin_info
             Util.save_from_dict_to_json(plugin_info, os.path.join(os.path.dirname(__file__), 'info.json'))
 
             #
@@ -84,7 +87,7 @@ class Logic(object):
     ##################################################################
     @staticmethod
     def register_rules(drules):
-        for _, v in drules.iteritems():
+        for _, v in iter(drules.items()):
             lpath = v['location_path'].rstrip('/')
             wroot = v['www_root']
             atype = v['auth_type']
@@ -138,7 +141,7 @@ class Logic(object):
                 basename = re.sub('.git', '', os.path.basename(git_repo[0]), flags=re.IGNORECASE)
                 www_root = os.path.join(install_dir, basename)
             elif install_cmd[0] == 'tar':
-                temp_fname, headers = urllib.urlretrieve(install_cmd[1])
+                temp_fname, headers = urlretrieve(install_cmd[1])
                 tar = tarfile.open(temp_fname)
                 basename = os.path.commonprefix(tar.getnames())
                 if basename:
@@ -154,7 +157,7 @@ class Logic(object):
                 www_root = os.path.join(install_dir, basename)
                 tar.extractall(extract_to)
             elif install_cmd[0] == 'zip':
-                temp_fname, headers = urllib.urlretrieve(install_cmd[1])
+                temp_fname, headers = urlretrieve(install_cmd[1])
                 zip = zipfile.ZipFile(temp_fname)
                 basename = os.path.commonprefix(zip.namelist())
                 if basename:
