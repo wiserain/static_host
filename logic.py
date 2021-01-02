@@ -104,12 +104,12 @@ class Logic(object):
             if atype == 1:
                 view_func = login_required(view_func)
             elif atype == 2:
-                users = {
-                    v['username']: generate_password_hash(v['password'])
-                }
                 basicauth = HTTPBasicAuth()
                 @basicauth.verify_password
                 def verify_password(username, password):
+                    users = {
+                        v['username']: generate_password_hash(v['password'])
+                    }
                     if username in users and check_password_hash(users.get(username), password):
                         return username
                 view_func = basicauth.login_required(view_func)
