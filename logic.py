@@ -18,7 +18,8 @@ import tarfile, zipfile
 
 # third-party
 import werkzeug
-from flask import send_from_directory, redirect, request
+from werkzeug.security import generate_password_hash, check_password_hash
+from flask import send_from_directory, redirect, request, send_file
 from flask.views import View
 from flask_login import login_required
 
@@ -29,6 +30,7 @@ from framework.util import Util
 # 패키지
 from .plugin import logger, package_name
 from .model import ModelSetting
+from .logic_auth import HTTPBasicAuth
 
 #########################################################
 
@@ -93,12 +95,24 @@ class Logic(object):
             atype = v['auth_type']
             endpoint_name = str(lpath.lstrip('/').replace('/', '-'))
             # endpoint_name = str(lpath)
-            if atype == 0:
-                view_func = StaticView.as_view(endpoint_name, wroot)
-            elif atype == 1:
-                view_func = StaticViewSJVAAuth.as_view(endpoint_name, wroot)
+            if wroot.startswith('https://') or wroot.startswith('http://'):
+                view_func = RedirectView.as_view(endpoint_name, wroot)
+            elif os.path.isfile(wroot):
+                view_func = FileView.as_view(endpoint_name, wroot)
             else:
-                raise NotImplementedError('auth_type: %s' % atype)
+                view_func = StaticView.as_view(endpoint_name, wroot)
+            if atype == 1:
+                view_func = login_required(view_func)
+            elif atype == 2:
+                users = {
+                    v['username']: generate_password_hash(v['password'])
+                }
+                basicauth = HTTPBasicAuth()
+                @basicauth.verify_password
+                def verify_password(username, password):
+                    if username in users and check_password_hash(users.get(username), password):
+                        return username
+                view_func = basicauth.login_required(view_func)
             app.add_url_rule(lpath + '/<path:path>', view_func=view_func)
             app.add_url_rule(lpath + '/', view_func=view_func)
 
@@ -111,8 +125,8 @@ class Logic(object):
         dangerous_lpath = ['/']
         lpath = location_path.rstrip('/') + '/'
         rules = [str(r) for r in app.url_map.iter_rules() if str(r) not in dangerous_lpath]
-        for rr in sorted(rules):
-            logger.debug(rr)
+        # for rr in sorted(rules):
+        #     logger.debug(rr)
         reserved_lpath = [r.split('<')[0].rstrip('/') + '/' for r in rules if '<' in r]
         if any(lpath.startswith(r) for r in reserved_lpath):
             raise ValueError('예약된 Location Path입니다.')
@@ -210,23 +224,21 @@ class StaticView(View):
             raise e
 
 
-class StaticViewSJVAAuth(View):
+class RedirectView(View):
     methods = ['GET']
-    decorators = [login_required]
 
-    def __init__(self, host_root):
-        self.host_root = host_root
+    def __init__(self, redirect_to):
+        self.redirect_to = redirect_to
 
-    def dispatch_request(self, path='index.html'):
-        try:
-            if path == 'favicon.ico':
-                return send_from_directory(self.host_root, path, mimetype='image/vnd.microsoft.icon')
-            else:
-                return send_from_directory(self.host_root, path)
-        except werkzeug.exceptions.NotFound as e:
-            current_root = os.path.join(self.host_root, path)
-            if os.path.isdir(current_root) and not path.endswith('/'):
-                return redirect(path + '/', code=301)
-            if path.endswith('/'):
-                return send_from_directory(current_root, 'index.html')
-            raise e
+    def dispatch_request(self):
+        return redirect(self.redirect_to)
+
+
+class FileView(View):
+    methods = ['GET']
+
+    def __init__(self, filepath):
+        self.filepath = filepath
+
+    def dispatch_request(self):
+        return send_file(self.filepath, as_attachment=True)

@@ -7,6 +7,7 @@ import os
 import traceback
 from datetime import datetime
 import shutil
+import uuid
 
 # third-party
 from flask import Blueprint, request, render_template, redirect, jsonify, Response
@@ -41,7 +42,7 @@ def plugin_unload():
 
 plugin_info = {
     "category_name": "tool",
-    "version": "0.0.3",
+    "version": "0.0.4",
     "name": "static_host",
     "home": "https://github.com/wiserain/static_host",
     "more": "https://github.com/wiserain/static_host",
@@ -111,13 +112,20 @@ def ajax(sub):
                 www_root = Logic.install_project(install_cmd, install_dir)
             else:
                 www_root = p.get('www_root', '')
-                if not os.path.isdir(www_root):
-                    raise ValueError('존재하지 않는 디렉토리 경로입니다.')
+                if not (www_root.startswith('https://') or www_root.startswith('http://')):
+                    if not os.path.exists(www_root):
+                        raise ValueError('존재하지 않는 경로입니다.')
             
+            if p.get('auth_type') == '2':
+                if not (p.get('username') and p.get('password')):
+                    raise ValueError('USER/PASS를 입력하세요.')
+                                    
             new_rule = {
                 'location_path': lpath,
                 'www_root': www_root,
                 'auth_type': int(p.get('auth_type')),
+                'username': p.get('username'),
+                'password': p.get('password'),
                 'creation_date': datetime.now().isoformat(),
             }
             Logic.register_rules({lpath: new_rule})
@@ -160,17 +168,21 @@ def ajax(sub):
                 return jsonify({'success': True, 'ret': lrules})
             else:
                 raise NotImplementedError('Unknown return type: %s' % ret)
-        elif sub == 'check_dir':
-            dir = p.get('dir', '')
-            if os.path.isdir(dir):
-                list_dir = os.listdir(dir)
+        elif sub == 'check_path':
+            path = p.get('path', '')
+            ret = {'success': True, 'exists': os.path.exists(path), 'isfile': os.path.isfile(path)}
+            if os.path.isdir(path):
+                list_dir = os.listdir(path)
                 in_total = len(list_dir)
                 export_only = 5
                 if in_total > export_only:
                     list_dir = list_dir[:export_only] + ['and %s more ...' % (in_total-export_only)]
-                return jsonify({'success': True, 'len': in_total, 'list': list_dir})
+                ret.update({'isdir': True, 'listdir': list_dir})
             else:
-                return jsonify({'success': True, 'len': -1})
+                ret.update({'isdir': False, 'listdir': None})
+            return jsonify(ret)
+        elif sub == 'gen_random_path':
+            return jsonify({'success': True, 'random_path': uuid.uuid4().hex})
     except Exception as e:
         logger.error('Exception:%s', e)
         logger.error(traceback.format_exc())

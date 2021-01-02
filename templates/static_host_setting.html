@@ -1,8 +1,12 @@
 {% extends "base.html" %} {% block content %}
 
 <form id="add-rule" name="add-rule">
-    {{ macros.setting_input_text('location_path', 'Location Path', desc=['요청을 처리할 URL 경로']) }}
-    {{ macros.setting_radio('auth_type', '인증', ['없음', 'SJVA auth']) }}
+    {{ macros.setting_input_text_and_buttons('location_path', 'Location Path', [['gen_random_path_btn', '랜덤 주소']], desc=['요청을 처리할 URL 경로']) }}
+    {{ macros.setting_radio('auth_type', '인증', ['없음', 'SJVA auth', 'BasicAuth']) }}
+    <div id="basic_auth_div" class="collapse">
+        {{ macros.setting_input_text('username', 'USER', value='', col='3') }}
+        {{ macros.setting_input_text('password', 'PASS', value='', col='3', type='password') }}
+    </div>
     {{ macros.setting_checkbox('use_project_install', '프로젝트 연결', value='false', desc=['유용한 프로젝트를 설치하고 그 폴더를 연결합니다.']) }}
     <div id="use_project_install_div" class="collapse">
         {{ macros.setting_select_and_buttons('project_template_sel', '프로젝트 선택', arg['project_template_list'], [['goto_project_home_btn', '홈페이지']]) }}
@@ -10,7 +14,7 @@
         {{ macros.setting_input_text('project_install_dir', '설치 폴더', desc=['프로젝트를 설치할 루트 폴더 지정하세요.']) }}
     </div>
     <div id="use_manual_root_div" class="collapse show">
-        {{ macros.setting_input_text('www_root', 'WWW Root', desc=['연결할 로컬 디렉토리 경로']) }}
+        {{ macros.setting_input_text('www_root', 'WWW Root', desc=['연결할 로컬 경로(/로 시작) 혹은 redirect URL(http로 시작)']) }}
     </div>
     {{ macros.setting_button([['add-rule-btn', '추가하기']]) }}
 </form>
@@ -52,7 +56,7 @@
 
 <script type="text/javascript">
     var package_name = "{{arg['package_name']}}";
-    var current_rule_size = "{{arg['rule_size']}}";
+    var current_rule_size = parseInt("{{arg['rule_size']}}");
     var ddns = "{{arg['ddns']}}";
 
     // Get references to the dom elements
@@ -72,6 +76,14 @@
         $('#use_manual_root_div').collapse('toggle');
     });
 
+    $('#auth_type0, #auth_type1, #auth_type2').change(function() {
+        if (this.value == 2) {
+            $('#basic_auth_div').collapse('show');
+        } else {
+            $('#basic_auth_div').collapse('hide');
+        }
+    });
+
     $('select#project_template_sel').change(function() {
         var sel_text = $('#project_template_sel option:selected').text();
         var sel_val = $('#project_template_sel').val();
@@ -89,24 +101,47 @@
         window.open($('#project_template_sel option:selected').text(), "_blank");
     });
 
+    $("body").on('click', '#gen_random_path_btn', function(e) {
+        e.preventDefault();
+        $.ajax({
+            url: '/' + package_name + '/ajax/gen_random_path',
+            type: "POST",
+            cache: false,
+            dataType: "json",
+            data: '',
+            context: this,
+            success: function(data) {
+                if (data.success) {
+                    $('#location_path').val('/' + data.random_path);
+                } else {
+                    $.notify('<strong>실패하였습니다.</strong><br>' + data.log, {
+                        type: 'warning'
+                    });
+                }
+            }
+        });
+    });
+
     $('input#project_install_dir').change(function() {
         if ($(this).val() == "") {
             $(this).parent().next('div').html("<em>프로젝트를 설치할 루트 폴더 지정하세요.</em>");
             return
         }
         $.ajax({
-            url: '/' + package_name + '/ajax/check_dir',
+            url: '/' + package_name + '/ajax/check_path',
             type: "POST",
             cache: false,
             dataType: "json",
-            data: {'dir': $(this).val()},
+            data: {'path': $(this).val()},
             context: this,
             success: function(data) {
                 if (data.success) {
-                    if (data.len == -1) {
+                    if (!data.exists) {
                         $(this).parent().next('div').html("<em>없는 폴더입니다. 만든 후 설치를 진행합니다.</em>");
-                    } else {
-                        $(this).parent().next('div').html("<em>설치하고자 하는 폴더가 맞는지 확인하세요.</em><br><pre>"+JSON.stringify(data.list, null, 2) + "</pre>");
+                    } else if (data.isdir) {
+                        $(this).parent().next('div').html("<em>설치하고자 하는 폴더가 맞는지 확인하세요.</em><br><pre>"+JSON.stringify(data.listdir, null, 2) + "</pre>");
+                    } else if (data.isfile) {
+                        $(this).parent().next('div').html("<em>이미 존재하는 경로입니다. 다른 경로 선택!</em>");
                     }
                 } else {
                     $(this).parent().next('div').html("<em>" + data.log + "</em>");
@@ -117,22 +152,27 @@
 
     $('input#www_root').change(function() {
         if ($(this).val() == "") {
-            $(this).parent().next('div').html("<em>연결할 로컬 디렉토리 경로</em>");
+            $(this).parent().next('div').html("<em>연결할 로컬 경로(/로 시작) 혹은 redirect URL(http로 시작)</em>");
+            return
+        } else if ($(this).val().startsWith('http://') || $(this).val().startsWith('https://')) {
+            $(this).parent().next('div').html("<em>해당 URL로 redirect 합니다.</em>");
             return
         }
         $.ajax({
-            url: '/' + package_name + '/ajax/check_dir',
+            url: '/' + package_name + '/ajax/check_path',
             type: "POST",
             cache: false,
             dataType: "json",
-            data: {'dir': $(this).val()},
+            data: {'path': $(this).val()},
             context: this,
             success: function(data) {
                 if (data.success) {
-                    if (data.len == -1) {
-                        $(this).parent().next('div').html("<em>없는 폴더입니다. 연결할 수 없습니다.</em>");
-                    } else {
-                        $(this).parent().next('div').html("<em>연결하고자 하는 폴더가 맞는지 확인하세요.</em><br><pre>"+JSON.stringify(data.list, null, 2) + "</pre>");
+                    if (!data.exists) {
+                        $(this).parent().next('div').html("<em>존재하지 않는 경로입니다. 연결할 수 없습니다.</em>");
+                    } else if (data.isdir) {
+                        $(this).parent().next('div').html("<em>연결하고자 하는 폴더가 맞는지 확인하세요.</em><br><pre>"+JSON.stringify(data.listdir, null, 2) + "</pre>");
+                    } else if (data.isfile) {
+                        $(this).parent().next('div').html("<em>위 파일로 연결합니다.</em>");
                     }
                 } else {
                     $(this).parent().next('div').html("<em>" + data.log + "</em>");
@@ -211,11 +251,19 @@
                     });
                     // reset form
                     $('#location_path').val("");
+                    $('#username').val("");
+                    $('#password').val("");
                     $('#auth_type0').prop('checked', 'true');
+                    $('#auth_type0').trigger('change');
                     $('#project_template_sel option:eq(0)').prop('selected', 'selected');
                     $('#project_install_cmd').val("");
                     $('#project_install_dir').val("");
+                    $('#project_install_dir').trigger('change');
                     $('#www_root').val("");
+                    $('#www_root').trigger('change');
+                    if ($('#use_project_install').is(':checked')) {
+                        $('#use_project_install').prop('checked', false).change();
+                    }
                 } else {
                     $.notify('<strong>실패하였습니다.</strong><br>' + data.log, {
                         type: 'warning'
@@ -247,9 +295,11 @@
             var auth_name = '없음';
         } else if (data.auth_type == 1) {
             var auth_name = 'SJVA'
+        } else if (data.auth_type == 2) {
+            var auth_name = 'Basic'
         }
         template_clone.querySelector("#other-details").innerHTML = `
-            <span class="text-muted">연결 폴더: ${data.www_root}</span><br>
+            <span class="text-muted">연결 대상: ${data.www_root}</span><br>
             <span class="text-muted">인증 타입: ${auth_name}</span>
         `;
 
