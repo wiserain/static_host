@@ -42,7 +42,7 @@ def plugin_unload():
 
 plugin_info = {
     "category_name": "tool",
-    "version": "0.0.4",
+    "version": "0.0.5",
     "name": "static_host",
     "home": "https://github.com/wiserain/static_host",
     "more": "https://github.com/wiserain/static_host",
@@ -144,7 +144,7 @@ def ajax(sub):
             # apply action
             if act == 'del' or act == 'pur':
                 if lpath in drules:
-                    if act == 'pur':
+                    if act == 'pur' and os.path.isdir(drules[lpath]['www_root']):
                         shutil.rmtree(drules[lpath]['www_root'])
                     del drules[lpath]
 

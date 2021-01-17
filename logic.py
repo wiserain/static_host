@@ -113,8 +113,11 @@ class Logic(object):
                     if username in users and check_password_hash(users.get(username), password):
                         return username
                 view_func = basicauth.login_required(view_func)
-            app.add_url_rule(lpath + '/<path:path>', view_func=view_func)
-            app.add_url_rule(lpath + '/', view_func=view_func)
+            if os.path.isdir(wroot):
+                app.add_url_rule(lpath + '/<path:path>', view_func=view_func)
+                app.add_url_rule(lpath + '/', view_func=view_func)
+            else:
+                app.add_url_rule(lpath, view_func=view_func)
 
 
     @staticmethod
