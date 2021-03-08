@@ -42,7 +42,7 @@ def plugin_unload():
 
 plugin_info = {
     "category_name": "tool",
-    "version": "0.0.5",
+    "version": "0.0.6",
     "name": "static_host",
     "home": "https://github.com/wiserain/static_host",
     "more": "https://github.com/wiserain/static_host",
@@ -172,14 +172,9 @@ def ajax(sub):
             path = p.get('path', '')
             ret = {'success': True, 'exists': os.path.exists(path), 'isfile': os.path.isfile(path)}
             if os.path.isdir(path):
-                list_dir = os.listdir(path)
-                in_total = len(list_dir)
-                export_only = 5
-                if in_total > export_only:
-                    list_dir = list_dir[:export_only] + ['and %s more ...' % (in_total-export_only)]
-                ret.update({'isdir': True, 'listdir': list_dir})
+                ret.update({'isdir': True})
             else:
-                ret.update({'isdir': False, 'listdir': None})
+                ret.update({'isdir': False})
             return jsonify(ret)
         elif sub == 'gen_random_path':
             return jsonify({'success': True, 'random_path': uuid.uuid4().hex})

@@ -11,10 +11,10 @@
     <div id="use_project_install_div" class="collapse">
         {{ macros.setting_select_and_buttons('project_template_sel', '프로젝트 선택', arg['project_template_list'], [['goto_project_home_btn', '홈페이지']]) }}
         {{ macros.setting_input_text('project_install_cmd', '설치 명령', desc=['필요한 경우 수동 지정']) }}
-        {{ macros.setting_input_text('project_install_dir', '설치 폴더', desc=['프로젝트를 설치할 루트 폴더 지정하세요.']) }}
+        {{ macros.setting_input_text_and_buttons('project_install_dir', '설치 폴더', [['find_project_install_dir_btn', '찾기']], desc=['프로젝트를 설치할 루트 폴더 지정하세요.']) }}
     </div>
     <div id="use_manual_root_div" class="collapse show">
-        {{ macros.setting_input_text('www_root', 'WWW Root', desc=['연결할 로컬 경로(/로 시작) 혹은 redirect URL(http로 시작)']) }}
+        {{ macros.setting_input_text_and_buttons('www_root', 'WWW Root', [['find_www_root_btn', '찾기']], desc=['연결할 로컬 경로(/로 시작) 혹은 redirect URL(http로 시작)']) }}
     </div>
     {{ macros.setting_button([['add-rule-btn', '추가하기']]) }}
 </form>
@@ -139,7 +139,7 @@
                     if (!data.exists) {
                         $(this).parent().next('div').html("<em>없는 폴더입니다. 만든 후 설치를 진행합니다.</em>");
                     } else if (data.isdir) {
-                        $(this).parent().next('div').html("<em>설치하고자 하는 폴더가 맞는지 확인하세요.</em><br><pre>"+JSON.stringify(data.listdir, null, 2) + "</pre>");
+                        $(this).parent().next('div').html("<em>위 폴더에 설치합니다.</em>");
                     } else if (data.isfile) {
                         $(this).parent().next('div').html("<em>이미 존재하는 경로입니다. 다른 경로 선택!</em>");
                     }
@@ -170,7 +170,7 @@
                     if (!data.exists) {
                         $(this).parent().next('div').html("<em>존재하지 않는 경로입니다. 연결할 수 없습니다.</em>");
                     } else if (data.isdir) {
-                        $(this).parent().next('div').html("<em>연결하고자 하는 폴더가 맞는지 확인하세요.</em><br><pre>"+JSON.stringify(data.listdir, null, 2) + "</pre>");
+                        $(this).parent().next('div').html("<em>위 폴더로 연결합니다.");
                     } else if (data.isfile) {
                         $(this).parent().next('div').html("<em>위 파일로 연결합니다.</em>");
                     }
@@ -340,6 +340,24 @@
                     });
                 }
             }
+        });
+    });
+    
+
+    $("body").on('click', '#find_project_install_dir_btn', function(e){
+        e.preventDefault();
+        m_select_local_file_modal("프로젝트 설치 루트 폴더 선택", '/', false, function(result){
+            document.getElementById("project_install_dir").value = result;
+            document.querySelector('#project_install_dir').dispatchEvent(new Event('change', {}));
+        });
+    });
+    
+
+    $("body").on('click', '#find_www_root_btn', function(e){
+        e.preventDefault();
+        m_select_local_file_modal("WWW Root 경로 선택", '/', false, function(result){
+            document.getElementById("www_root").value = result;
+            document.querySelector('#www_root').dispatchEvent(new Event('change', {}));
         });
     });
 
