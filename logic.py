@@ -17,8 +17,8 @@ import subprocess
 import tarfile, zipfile
 
 # third-party
-import werkzeug
-from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.exceptions import NotFound
+from werkzeug.security import check_password_hash
 from flask import send_from_directory, redirect, request, send_file
 from flask.views import View
 from flask_login import login_required
@@ -108,7 +108,7 @@ class Logic(object):
                 @basicauth.verify_password
                 def verify_password(username, password):
                     users = {
-                        v['username']: generate_password_hash(v['password'])
+                        v['username']: v['password']
                     }
                     if username in users and check_password_hash(users.get(username), password):
                         return username
@@ -218,7 +218,7 @@ class StaticView(View):
                 return send_from_directory(self.host_root, path, mimetype='image/vnd.microsoft.icon')
             else:
                 return send_from_directory(self.host_root, path)
-        except werkzeug.exceptions.NotFound as e:
+        except NotFound as e:
             current_root = os.path.join(self.host_root, path)
             if os.path.isdir(current_root) and not path.endswith('/'):
                 return redirect(path + '/', code=301)

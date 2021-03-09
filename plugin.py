@@ -7,9 +7,9 @@ import os
 import traceback
 from datetime import datetime
 import shutil
-import uuid
 
 # third-party
+from werkzeug.security import generate_password_hash
 from flask import Blueprint, request, render_template, redirect, jsonify, Response
 from flask_login import login_required
 
@@ -42,7 +42,7 @@ def plugin_unload():
 
 plugin_info = {
     "category_name": "tool",
-    "version": "0.0.6",
+    "version": "0.0.7",
     "name": "static_host",
     "home": "https://github.com/wiserain/static_host",
     "more": "https://github.com/wiserain/static_host",
@@ -125,7 +125,7 @@ def ajax(sub):
                 'www_root': www_root,
                 'auth_type': int(p.get('auth_type')),
                 'username': p.get('username'),
-                'password': p.get('password'),
+                'password': generate_password_hash(p.get('password')),
                 'creation_date': datetime.now().isoformat(),
             }
             Logic.register_rules({lpath: new_rule})
@@ -176,8 +176,6 @@ def ajax(sub):
             else:
                 ret.update({'isdir': False})
             return jsonify(ret)
-        elif sub == 'gen_random_path':
-            return jsonify({'success': True, 'random_path': uuid.uuid4().hex})
     except Exception as e:
         logger.error('Exception:%s', e)
         logger.error(traceback.format_exc())

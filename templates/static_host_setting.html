@@ -101,25 +101,22 @@
         window.open($('#project_template_sel option:selected').text(), "_blank");
     });
 
+    // https://stackoverflow.com/a/2117523/9689068
+    function uuid4() {
+        return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+            (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+        );
+    }
+
+    function uuid4hex() {
+        return ([1e7,1e3,4e3,8e3,1e11].join('')).replace(/[018]/g, c =>
+            (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+        );
+    }
+
     $("body").on('click', '#gen_random_path_btn', function(e) {
         e.preventDefault();
-        $.ajax({
-            url: '/' + package_name + '/ajax/gen_random_path',
-            type: "POST",
-            cache: false,
-            dataType: "json",
-            data: '',
-            context: this,
-            success: function(data) {
-                if (data.success) {
-                    $('#location_path').val('/' + data.random_path);
-                } else {
-                    $.notify('<strong>실패하였습니다.</strong><br>' + data.log, {
-                        type: 'warning'
-                    });
-                }
-            }
-        });
+        $('#location_path').val('/' + uuid4hex());
     });
 
     $('input#project_install_dir').change(function() {
