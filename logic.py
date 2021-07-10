@@ -1,94 +1,159 @@
 # -*- coding: utf-8 -*-
-#########################################################
-# python
 import os
 import re
 import cgi
-import sys
 import json
 import traceback
 from datetime import datetime
-try:
-    from urllib import urlretrieve
-except ImportError:
-    from urllib.request import urlretrieve
+from urllib.request import urlretrieve
 import shutil
 import subprocess
 import tarfile, zipfile
 
 # third-party
 from werkzeug.exceptions import NotFound
-from werkzeug.security import check_password_hash
-from flask import send_from_directory, redirect, request, send_file
+from werkzeug.security import check_password_hash, generate_password_hash
+from flask import send_from_directory, redirect, request, send_file, render_template, jsonify
 from flask.views import View
 from flask_login import login_required
 
-# sjva 공용
-from framework import db, scheduler, app
-from framework.util import Util
+# app common
+from framework import app, SystemModelSetting
+from framework.common.plugin import LogicModuleBase
 
-# 패키지
-from .plugin import logger, package_name
-from .model import ModelSetting
+# local
+from .plugin import plugin
 from .logic_auth import HTTPBasicAuth
 
-#########################################################
+logger = plugin.logger
+package_name = plugin.package_name
+ModelSetting = plugin.ModelSetting
 
 
-class Logic(object):
-    # 디폴트 세팅값
+class LogicMain(LogicModuleBase):
     db_default = {
         'rules': json.dumps({
-            '/' + package_name + '/example': {
-                'location_path': '/' + package_name + '/example',
+            f'/{package_name}/example': {
+                'location_path': f'/{package_name}/example',
                 'www_root': os.path.join(os.path.dirname(os.path.abspath(__file__)), 'example'),
                 'auth_type': 0,
                 'creation_date': datetime.now().isoformat(),
             }
         }),
     }
+    
+    def __init__(self, P):
+        super(LogicMain, self).__init__(P, None)
 
-    @staticmethod
-    def db_init():
+    def plugin_load(self):
         try:
-            for key, value in Logic.db_default.items():
-                if db.session.query(ModelSetting).filter_by(key=key).count() == 0:
-                    db.session.add(ModelSetting(key, value))
-            db.session.commit()
+            self.register_rules(json.loads(ModelSetting.get('rules')))
         except Exception as e:
             logger.error('Exception:%s', e)
             logger.error(traceback.format_exc())
 
-    @staticmethod
-    def plugin_load():
+    def process_menu(self, sub, req):
+        arg = ModelSetting.to_dict()
+        if sub == 'setting':
+            arg['package_name'] = package_name
+            arg['rule_size'] = len(json.loads(ModelSetting.get('rules')))
+            arg['ddns'] = SystemModelSetting.get('ddns').rstrip('/')
+            arg['project_template_list'] = [
+                ['', '선택하면 설치 명령이 자동 완성됩니다.'],
+                ['git|https://github.com/codedread/kthoom', 'https://github.com/codedread/kthoom'],
+                ['git|https://github.com/daleharvey/pacman', 'https://github.com/daleharvey/pacman'],
+                ['git|https://github.com/ziahamza/webui-aria2|docs', 'https://github.com/ziahamza/webui-aria2'],
+                ['git|https://github.com/SauravKhare/speedtest', 'https://github.com/SauravKhare/speedtest'],
+                ['tar|https://github.com/viliusle/miniPaint/archive/v4.2.4.tar.gz', 'https://github.com/viliusle/miniPaint'],
+                ['zip|https://github.com/mayswind/AriaNg/releases/download/1.1.6/AriaNg-1.1.6.zip', 'https://github.com/mayswind/AriaNg'],
+            ]
+            return render_template(f'{package_name}_{sub}.html', sub=sub, arg=arg)
+        return render_template('sample.html', title=f'{package_name} - {sub}')
+
+    def process_ajax(self, sub, req):
         try:
-            # DB 초기화
-            Logic.db_init()
+            p = request.form.to_dict() if request.method == 'POST' else request.args.to_dict()
+            if sub == 'add_rule':
+                lpath = p.get('location_path', '')
+                self.check_lpath(lpath)
 
-            # 편의를 위해 json 파일 생성
-            from .plugin import plugin_info
-            Util.save_from_dict_to_json(plugin_info, os.path.join(os.path.dirname(__file__), 'info.json'))
+                if p.get('use_project_install') == 'True':
+                    install_cmd = p.get('project_install_cmd').split('|')
+                    install_dir = p.get('project_install_dir')
+                    www_root = self.install_project(install_cmd, install_dir)
+                else:
+                    www_root = p.get('www_root', '')
+                    if not (www_root.startswith('https://') or www_root.startswith('http://')):
+                        if not os.path.exists(www_root):
+                            raise ValueError('존재하지 않는 경로입니다.')
+                
+                if p.get('auth_type') == '2':
+                    if not (p.get('username') and p.get('password')):
+                        raise ValueError('USER/PASS를 입력하세요.')
 
-            #
-            # 자동시작 옵션이 있으면 보통 여기서
-            #
-            Logic.register_rules(ModelSetting.get_json('rules'))
+                new_rule = {
+                    'location_path': lpath,
+                    'www_root': www_root,
+                    'auth_type': int(p.get('auth_type')),
+                    'username': p.get('username'),
+                    'password': generate_password_hash(p.get('password')),
+                    'creation_date': datetime.now().isoformat(),
+                }
+                self.register_rules({lpath: new_rule})
+
+                drules = json.loads(ModelSetting.get('rules'))
+                drules.update({lpath: new_rule})
+                ModelSetting.set('rules', json.dumps(drules))
+
+                return jsonify({'success': True, 'ret': new_rule})
+            elif sub == 'rule':
+                act = p.get('act', '')
+                ret = p.get('ret', 'list')
+                lpath = p.get('location_path', '')
+                drules = json.loads(ModelSetting.get('rules'))
+                
+                # apply action
+                if act == 'del' or act == 'pur':
+                    if lpath in drules:
+                        if act == 'pur' and os.path.isdir(drules[lpath]['www_root']):
+                            shutil.rmtree(drules[lpath]['www_root'])
+                        elif act == 'pur' and os.path.isfile(drules[lpath]['www_root']):
+                            os.remove(drules[lpath]['www_root'])
+                        del drules[lpath]
+
+                if act:
+                    ModelSetting.set('rules', json.dumps(drules))
+
+                lrules = [val for _, val in iter(drules.items())]
+                if ret == 'count':
+                    return jsonify({'success': True, 'ret': len(lrules)})
+                elif ret == 'list':
+                    lrules = sorted(lrules, key=lambda x: x['creation_date'], reverse=True)
+                    counter = int(p.get('c', '0'))
+                    pagesize = 20
+                    if counter == 0:
+                        lrules = lrules[:pagesize]
+                    elif counter == len(lrules):
+                        lrules = []
+                    else:
+                        lrules = lrules[counter:counter+pagesize]
+                    return jsonify({'success': True, 'ret': lrules, 'nomore': len(lrules) != pagesize})
+                else:
+                    raise NotImplementedError('Unknown return type: %s' % ret)
+            elif sub == 'check_path':
+                path = p.get('path', '')
+                ret = {'success': True, 'exists': os.path.exists(path), 'isfile': os.path.isfile(path)}
+                if os.path.isdir(path):
+                    ret.update({'isdir': True})
+                else:
+                    ret.update({'isdir': False})
+                return jsonify(ret)
         except Exception as e:
             logger.error('Exception:%s', e)
             logger.error(traceback.format_exc())
-
-    @staticmethod
-    def plugin_unload():
-        try:
-            logger.debug('%s plugin_unload', package_name)
-        except Exception as e:
-            logger.error('Exception:%s', e)
-            logger.error(traceback.format_exc())
-
-    # 기본 구조 End
-    ##################################################################
-    @staticmethod
-    def register_rules(drules):
+            return jsonify({'success': False, 'log': str(e)})
+    
+    def register_rules(self, drules):
         for _, v in iter(drules.items()):
             lpath = v['location_path'].rstrip('/')
             wroot = v['www_root']
@@ -119,9 +184,7 @@ class Logic(object):
             else:
                 app.add_url_rule(lpath, view_func=view_func)
 
-
-    @staticmethod
-    def check_lpath(location_path):
+    def check_lpath(self, location_path):
         if not location_path.startswith('/'):
             raise ValueError('Location Path는 /로 시작해야 합니다.')
 
@@ -137,9 +200,7 @@ class Logic(object):
         if any(lpath == r for r in exact_rules):
             raise ValueError('이미 등록된 Location Path입니다.')
 
-
-    @staticmethod
-    def install_project(install_cmd, install_dir):
+    def install_project(self, install_cmd, install_dir):
         if len(install_cmd) < 2:
             raise ValueError('잘못된 설치 명령: 설치 URL이 없음')
         was_dir = os.path.isdir(install_dir)

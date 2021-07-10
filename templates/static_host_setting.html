@@ -188,19 +188,16 @@
                     sentinel.innerHTML = `ERROR: ${res.log}`;
                     return;
                 }
-                var data = res.ret;
-                if (!data.length) {
-                    sentinel.innerHTML = "No more items";
-                    loaded.innerText = `${counter}/${current_rule_size}`;
-                    return;
-                }
                 // Iterate over the items in the response
-                for (var i = 0; i < data.length; i++) {
-                    render_single_item(data[i], false);
+                for (var i = 0; i < res.ret.length; i++) {
+                    render_single_item(res.ret[i], false);
                     // Increment the counter
                     counter += 1;
                     // Update the counter
                     loaded.innerText = `${counter}/${current_rule_size}`;
+                }
+                if (res.nomore) {
+                    sentinel.innerHTML = "No more items";
                 }
             })
         })
