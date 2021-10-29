@@ -25,10 +25,11 @@
 </div>
 
 
-<div class="mt-3 mb-3" id="registered-rules">
+<div class="row mt-3 mb-3" id="registered-rules">
 
 <template id="item-template">
-    <div class="card mb-3 animated fadeIn shadow-sm">
+    <div class="col-lg-6 col-md-12 col-sm-12 col-12 animated fadeIn">
+    <div class="card mb-3 shadow-sm">
         <div class="card-body">
             <div class="d-flex w-100 justify-content-between" id="card-title">
                 <h6 class="card-title text-truncate" style="flex: 1;" id="location-path" title="Location Path"></h6>
@@ -37,8 +38,9 @@
             </div>
             <p class="card-text text-muted text-truncate" id="other-details"></p>
             <a href="#" class="card-link text-danger" id="remove-item">규칙삭제</a>
-            <a href="#" class="card-link text-danger" id="purge-item">대상도 삭제</a>
+            <!--a href="#" class="card-link text-danger" id="purge-item">대상도 삭제</a-->
         </div>
+    </div>
     </div>
 </template>
 
@@ -300,9 +302,9 @@
             <span class="text-muted">연결 대상: ${data.www_root}</span><br>
             <span class="text-muted">인증 타입: ${auth_name}</span>
         `;
-        if (data.www_root.startsWith('http')) {
-            template_clone.querySelector("#purge-item").remove();
-        }
+        //if (data.www_root.startsWith('http')) {
+        //    template_clone.querySelector("#purge-item").remove();
+        //}
 
         // Append template to dom
         if (newly_added) {
@@ -328,7 +330,7 @@
             dataType: "json",
             success: function (data) {
                 if (data.success) {
-                    $(card).fadeOut(300, function() { $(card).remove(); });
+                    $(card).fadeOut(300, function() { $(card).parent().remove(); });
                     current_rule_size -= 1;
                     counter -= 1;
                     loaded.innerText = `${counter}/${current_rule_size}`;
