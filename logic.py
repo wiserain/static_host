@@ -7,7 +7,8 @@ from datetime import datetime
 from urllib.request import urlretrieve
 import shutil
 import subprocess
-import tarfile, zipfile
+import tarfile
+import zipfile
 
 # third-party
 from werkzeug.exceptions import NotFound
@@ -16,7 +17,7 @@ from flask import send_from_directory, redirect, request, send_file, render_temp
 from flask.views import View
 from flask_login import login_required
 
-# app common
+# pylint: disable=import-error
 from framework import app, SystemModelSetting
 from framework.common.plugin import LogicModuleBase
 
@@ -44,7 +45,7 @@ class LogicMain(LogicModuleBase):
     }
 
     def __init__(self, P):
-        super(LogicMain, self).__init__(P, None)
+        super().__init__(P, None)
 
     def plugin_load(self):
         try:
@@ -66,11 +67,11 @@ class LogicMain(LogicModuleBase):
                 ["git|https://github.com/ziahamza/webui-aria2|docs", "https://github.com/ziahamza/webui-aria2"],
                 ["git|https://github.com/SauravKhare/speedtest", "https://github.com/SauravKhare/speedtest"],
                 [
-                    "tar|https://github.com/viliusle/miniPaint/archive/v4.2.4.tar.gz",
+                    "tar|https://github.com/viliusle/miniPaint/archive/v4.9.3.tar.gz",
                     "https://github.com/viliusle/miniPaint",
                 ],
                 [
-                    "zip|https://github.com/mayswind/AriaNg/releases/download/1.1.6/AriaNg-1.1.6.zip",
+                    "zip|https://github.com/mayswind/AriaNg/releases/download/1.2.3/AriaNg-1.2.3.zip",
                     "https://github.com/mayswind/AriaNg",
                 ],
             ]
@@ -113,14 +114,14 @@ class LogicMain(LogicModuleBase):
                 ModelSetting.set("rules", json.dumps(drules))
 
                 return jsonify({"success": True, "ret": new_rule})
-            elif sub == "rule":
+            if sub == "rule":
                 act = p.get("act", "")
                 ret = p.get("ret", "list")
                 lpath = p.get("location_path", "")
                 drules = json.loads(ModelSetting.get("rules"))
 
                 # apply action
-                if act == "del" or act == "pur":
+                if act in ["del", "pur"]:
                     if lpath in drules:
                         if act == "pur" and os.path.isdir(drules[lpath]["www_root"]):
                             shutil.rmtree(drules[lpath]["www_root"])
@@ -134,7 +135,7 @@ class LogicMain(LogicModuleBase):
                 lrules = [val for _, val in iter(drules.items())]
                 if ret == "count":
                     return jsonify({"success": True, "ret": len(lrules)})
-                elif ret == "list":
+                if ret == "list":
                     lrules = sorted(lrules, key=lambda x: x["creation_date"], reverse=True)
                     counter = int(p.get("c", "0"))
                     pagesize = 20
@@ -145,8 +146,7 @@ class LogicMain(LogicModuleBase):
                     else:
                         lrules = lrules[counter : counter + pagesize]
                     return jsonify({"success": True, "ret": lrules, "nomore": len(lrules) != pagesize})
-                else:
-                    raise NotImplementedError("Unknown return type: %s" % ret)
+                raise NotImplementedError(f"Unknown return type: {ret}")
             elif sub == "check_path":
                 path = p.get("path", "")
                 ret = {"success": True, "exists": os.path.exists(path), "isfile": os.path.isfile(path)}
@@ -227,38 +227,38 @@ class LogicMain(LogicModuleBase):
                 www_root = os.path.join(install_dir, basename)
             elif install_cmd[0] == "tar":
                 temp_fname, headers = urlretrieve(install_cmd[1])
-                tar = tarfile.open(temp_fname)
-                basename = os.path.commonprefix(tar.getnames())
-                if basename:
-                    extract_to = install_dir
-                else:
-                    try:
-                        _, params = cgi.parse_header(headers["Content-Disposition"])
-                        remote_fname = params["filename"]
-                    except KeyError:
-                        remote_fname = os.path.basename(install_cmd[1])
-                    basename = re.sub(".tar", "", remote_fname, flags=re.IGNORECASE)
-                    extract_to = os.path.join(install_dir, basename)
-                www_root = os.path.join(install_dir, basename)
-                tar.extractall(extract_to)
+                with tarfile.open(temp_fname) as _t:
+                    basename = os.path.commonprefix(_t.getnames())
+                    if basename:
+                        extract_to = install_dir
+                    else:
+                        try:
+                            _, params = cgi.parse_header(headers["Content-Disposition"])
+                            remote_fname = params["filename"]
+                        except KeyError:
+                            remote_fname = os.path.basename(install_cmd[1])
+                        basename = re.sub(".tar", "", remote_fname, flags=re.IGNORECASE)
+                        extract_to = os.path.join(install_dir, basename)
+                    www_root = os.path.join(install_dir, basename)
+                    _t.extractall(extract_to)
             elif install_cmd[0] == "zip":
                 temp_fname, headers = urlretrieve(install_cmd[1])
-                zip = zipfile.ZipFile(temp_fname)
-                basename = os.path.commonprefix(zip.namelist())
-                if basename:
-                    extract_to = install_dir
-                else:
-                    try:
-                        _, params = cgi.parse_header(headers["Content-Disposition"])
-                        remote_fname = params["filename"]
-                    except KeyError:
-                        remote_fname = os.path.basename(install_cmd[1])
-                    basename = re.sub(".zip", "", remote_fname, flags=re.IGNORECASE)
-                    extract_to = os.path.join(install_dir, basename)
-                www_root = os.path.join(install_dir, basename)
-                zip.extractall(extract_to)
+                with zipfile.ZipFile(temp_fname) as _z:
+                    basename = os.path.commonprefix(_z.namelist())
+                    if basename:
+                        extract_to = install_dir
+                    else:
+                        try:
+                            _, params = cgi.parse_header(headers["Content-Disposition"])
+                            remote_fname = params["filename"]
+                        except KeyError:
+                            remote_fname = os.path.basename(install_cmd[1])
+                        basename = re.sub(".zip", "", remote_fname, flags=re.IGNORECASE)
+                        extract_to = os.path.join(install_dir, basename)
+                    www_root = os.path.join(install_dir, basename)
+                    _z.extractall(extract_to)
             else:
-                raise NotImplementedError("지원하지 않는 설치 명령: %s" % install_cmd[0])
+                raise NotImplementedError(f"지원하지 않는 설치 명령: {install_cmd[0]}")
 
             if len(install_cmd) > 2 and install_cmd[2]:
                 www_root = os.path.join(www_root, install_cmd[2])
@@ -267,7 +267,7 @@ class LogicMain(LogicModuleBase):
         except subprocess.CalledProcessError as e:
             if not was_dir:
                 shutil.rmtree(install_dir)
-            raise Exception(e.output.strip())
+            raise Exception(e.output.strip()) from e
         except Exception as e:
             if not was_dir:
                 shutil.rmtree(install_dir)
@@ -284,8 +284,7 @@ class StaticView(View):
         try:
             if path == "favicon.ico":
                 return send_from_directory(self.host_root, path, mimetype="image/vnd.microsoft.icon")
-            else:
-                return send_from_directory(self.host_root, path)
+            return send_from_directory(self.host_root, path)
         except NotFound as e:
             current_root = os.path.join(self.host_root, path)
             if os.path.isdir(current_root) and not path.endswith("/"):
