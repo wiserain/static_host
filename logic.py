@@ -112,14 +112,6 @@ class LogicMain(LogicModuleBase):
                         }
                     )
 
-                new_rule = {
-                    "location_path": lpath,
-                    "www_root": www_root,
-                    "auth_type": int(p.get("auth_type")),
-                    "username": p.get("username"),
-                    "password": generate_password_hash(p.get("password")),
-                    "creation_date": datetime.now().isoformat(),
-                }
                 LogicMain.register_rules({lpath: new_rule})
 
                 drules = json.loads(ModelSetting.get("rules"))
@@ -134,13 +126,12 @@ class LogicMain(LogicModuleBase):
                 drules = json.loads(ModelSetting.get("rules"))
 
                 # apply action
-                if act in ["del", "pur"]:
-                    if lpath in drules:
-                        if act == "pur" and os.path.isdir(drules[lpath]["www_root"]):
-                            shutil.rmtree(drules[lpath]["www_root"])
-                        elif act == "pur" and os.path.isfile(drules[lpath]["www_root"]):
-                            os.remove(drules[lpath]["www_root"])
-                        del drules[lpath]
+                if act in ["del", "pur"] and lpath in drules:
+                    if act == "pur" and os.path.isdir(drules[lpath]["www_root"]):
+                        shutil.rmtree(drules[lpath]["www_root"])
+                    elif act == "pur" and os.path.isfile(drules[lpath]["www_root"]):
+                        os.remove(drules[lpath]["www_root"])
+                    del drules[lpath]
 
                 if act:
                     ModelSetting.set("rules", json.dumps(drules))
