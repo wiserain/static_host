@@ -49,7 +49,7 @@ class LogicMain(LogicModuleBase):
 
     def plugin_load(self):
         try:
-            self.register_rules(json.loads(ModelSetting.get("rules")))
+            LogicMain.register_rules(json.loads(ModelSetting.get("rules")))
         except Exception as e:
             logger.error("Exception:%s", e)
             logger.error(traceback.format_exc())
@@ -83,21 +83,34 @@ class LogicMain(LogicModuleBase):
             p = request.form.to_dict() if request.method == "POST" else request.args.to_dict()
             if sub == "add_rule":
                 lpath = p.get("location_path", "")
-                self.check_lpath(lpath)
+                LogicMain.check_lpath(lpath)
 
                 if p.get("use_project_install") == "True":
                     install_cmd = p.get("project_install_cmd").split("|")
                     install_dir = p.get("project_install_dir")
-                    www_root = self.install_project(install_cmd, install_dir)
+                    www_root = LogicMain.install_project(install_cmd, install_dir)
                 else:
                     www_root = p.get("www_root", "")
-                    if not (www_root.startswith("https://") or www_root.startswith("http://")):
+                    if not www_root.startswith(("https://", "http://")):
                         if not os.path.exists(www_root):
                             raise ValueError("존재하지 않는 경로입니다.")
+
+                new_rule = {
+                    "location_path": lpath,
+                    "www_root": www_root,
+                    "auth_type": int(p.get("auth_type")),
+                    "creation_date": datetime.now().isoformat(),
+                }
 
                 if p.get("auth_type") == "2":
                     if not (p.get("username") and p.get("password")):
                         raise ValueError("USER/PASS를 입력하세요.")
+                    new_rule.update(
+                        {
+                            "username": p.get("username"),
+                            "password": generate_password_hash(p.get("password")),
+                        }
+                    )
 
                 new_rule = {
                     "location_path": lpath,
@@ -107,7 +120,7 @@ class LogicMain(LogicModuleBase):
                     "password": generate_password_hash(p.get("password")),
                     "creation_date": datetime.now().isoformat(),
                 }
-                self.register_rules({lpath: new_rule})
+                LogicMain.register_rules({lpath: new_rule})
 
                 drules = json.loads(ModelSetting.get("rules"))
                 drules.update({lpath: new_rule})
@@ -147,7 +160,7 @@ class LogicMain(LogicModuleBase):
                         lrules = lrules[counter : counter + pagesize]
                     return jsonify({"success": True, "ret": lrules, "nomore": len(lrules) != pagesize})
                 raise NotImplementedError(f"Unknown return type: {ret}")
-            elif sub == "check_path":
+            if sub == "check_path":
                 path = p.get("path", "")
                 ret = {"success": True, "exists": os.path.exists(path), "isfile": os.path.isfile(path)}
                 if os.path.isdir(path):
@@ -155,19 +168,21 @@ class LogicMain(LogicModuleBase):
                 else:
                     ret.update({"isdir": False})
                 return jsonify(ret)
+            raise NotImplementedError(f"Unknown sub type: {sub}")
         except Exception as e:
             logger.error("Exception:%s", e)
             logger.error(traceback.format_exc())
             return jsonify({"success": False, "log": str(e)})
 
-    def register_rules(self, drules):
+    @staticmethod
+    def register_rules(drules):
         for _, v in iter(drules.items()):
             lpath = v["location_path"].rstrip("/")
             wroot = v["www_root"]
             atype = v["auth_type"]
             endpoint_name = str(lpath.lstrip("/").replace("/", "-"))
             # endpoint_name = str(lpath)
-            if wroot.startswith("https://") or wroot.startswith("http://"):
+            if wroot.startswith(("https://", "http://")):
                 view_func = RedirectView.as_view(endpoint_name, wroot)
             elif os.path.isfile(wroot):
                 view_func = FileView.as_view(endpoint_name, wroot)
@@ -176,14 +191,7 @@ class LogicMain(LogicModuleBase):
             if atype == 1:
                 view_func = login_required(view_func)
             elif atype == 2:
-                basicauth = HTTPBasicAuth()
-
-                @basicauth.verify_password
-                def verify_password(username, password):
-                    users = {v["username"]: v["password"]}
-                    if username in users and check_password_hash(users.get(username), password):
-                        return username
-
+                basicauth = LogicMain.get_basicauth({v["username"]: v["password"]})
                 view_func = basicauth.login_required(view_func)
             if os.path.isdir(wroot):
                 app.add_url_rule(lpath + "/<path:path>", view_func=view_func)
@@ -191,7 +199,8 @@ class LogicMain(LogicModuleBase):
             else:
                 app.add_url_rule(lpath, view_func=view_func)
 
-    def check_lpath(self, location_path):
+    @staticmethod
+    def check_lpath(location_path):
         if not location_path.startswith("/"):
             raise ValueError("Location Path는 /로 시작해야 합니다.")
 
@@ -207,7 +216,8 @@ class LogicMain(LogicModuleBase):
         if any(lpath == r for r in exact_rules):
             raise ValueError("이미 등록된 Location Path입니다.")
 
-    def install_project(self, install_cmd, install_dir):
+    @staticmethod
+    def install_project(install_cmd, install_dir):
         if len(install_cmd) < 2:
             raise ValueError("잘못된 설치 명령: 설치 URL이 없음")
         was_dir = os.path.isdir(install_dir)
@@ -272,6 +282,18 @@ class LogicMain(LogicModuleBase):
             if not was_dir:
                 shutil.rmtree(install_dir)
             raise e
+
+    @staticmethod
+    def get_basicauth(users):
+        basicauth = HTTPBasicAuth()
+
+        @basicauth.verify_password
+        def verify_password(username, password):
+            if username in users and check_password_hash(users.get(username), password):
+                return username
+            return False
+
+        return basicauth
 
 
 class StaticView(View):
