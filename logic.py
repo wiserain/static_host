@@ -1,14 +1,8 @@
 import os
-import re
-import cgi
 import json
 import traceback
 from datetime import datetime
-from urllib.request import urlretrieve
 import shutil
-import subprocess
-import tarfile
-import zipfile
 
 # third-party
 from werkzeug.exceptions import NotFound
@@ -60,21 +54,6 @@ class LogicMain(LogicModuleBase):
             arg["package_name"] = package_name
             arg["rule_size"] = len(json.loads(ModelSetting.get("rules")))
             arg["ddns"] = SystemModelSetting.get("ddns").rstrip("/")
-            arg["project_template_list"] = [
-                ["", "선택하면 설치 명령이 자동 완성됩니다."],
-                ["git|https://github.com/codedread/kthoom", "https://github.com/codedread/kthoom"],
-                ["git|https://github.com/daleharvey/pacman", "https://github.com/daleharvey/pacman"],
-                ["git|https://github.com/ziahamza/webui-aria2|docs", "https://github.com/ziahamza/webui-aria2"],
-                ["git|https://github.com/SauravKhare/speedtest", "https://github.com/SauravKhare/speedtest"],
-                [
-                    "tar|https://github.com/viliusle/miniPaint/archive/v4.9.3.tar.gz",
-                    "https://github.com/viliusle/miniPaint",
-                ],
-                [
-                    "zip|https://github.com/mayswind/AriaNg/releases/download/1.2.3/AriaNg-1.2.3.zip",
-                    "https://github.com/mayswind/AriaNg",
-                ],
-            ]
             return render_template(f"{package_name}_{sub}.html", sub=sub, arg=arg)
         return render_template("sample.html", title=f"{package_name} - {sub}")
 
@@ -85,15 +64,10 @@ class LogicMain(LogicModuleBase):
                 lpath = p.get("location_path", "")
                 LogicMain.check_lpath(lpath)
 
-                if p.get("use_project_install") == "True":
-                    install_cmd = p.get("project_install_cmd").split("|")
-                    install_dir = p.get("project_install_dir")
-                    www_root = LogicMain.install_project(install_cmd, install_dir)
-                else:
-                    www_root = p.get("www_root", "")
-                    if not www_root.startswith(("https://", "http://")):
-                        if not os.path.exists(www_root):
-                            raise ValueError("존재하지 않는 경로입니다.")
+                www_root = p.get("www_root", "")
+                if not www_root.startswith(("https://", "http://")):
+                    if not os.path.exists(www_root):
+                        raise ValueError("존재하지 않는 경로입니다.")
 
                 new_rule = {
                     "location_path": lpath,
@@ -206,73 +180,6 @@ class LogicMain(LogicModuleBase):
         exact_rules = [r.rstrip("/") + "/" for r in rules if "<" not in r]
         if any(lpath == r for r in exact_rules):
             raise ValueError("이미 등록된 Location Path입니다.")
-
-    @staticmethod
-    def install_project(install_cmd, install_dir):
-        if len(install_cmd) < 2:
-            raise ValueError("잘못된 설치 명령: 설치 URL이 없음")
-        was_dir = os.path.isdir(install_dir)
-        if not was_dir:
-            os.makedirs(install_dir)
-
-        try:
-            if install_cmd[0] == "git":
-                git_repo = install_cmd[1].split("@")
-                git_cmd = ["git", "-C", install_dir, "clone"]
-                if len(git_repo) > 1 and git_repo[1]:
-                    git_cmd += ["-b", git_repo[1], git_repo[0]]
-                else:
-                    git_cmd += [git_repo[0]]
-                subprocess.check_output(git_cmd, stderr=subprocess.STDOUT)
-                basename = re.sub(".git", "", os.path.basename(git_repo[0]), flags=re.IGNORECASE)
-                www_root = os.path.join(install_dir, basename)
-            elif install_cmd[0] == "tar":
-                temp_fname, headers = urlretrieve(install_cmd[1])
-                with tarfile.open(temp_fname) as _t:
-                    basename = os.path.commonprefix(_t.getnames())
-                    if basename:
-                        extract_to = install_dir
-                    else:
-                        try:
-                            _, params = cgi.parse_header(headers["Content-Disposition"])
-                            remote_fname = params["filename"]
-                        except KeyError:
-                            remote_fname = os.path.basename(install_cmd[1])
-                        basename = re.sub(".tar", "", remote_fname, flags=re.IGNORECASE)
-                        extract_to = os.path.join(install_dir, basename)
-                    www_root = os.path.join(install_dir, basename)
-                    _t.extractall(extract_to)
-            elif install_cmd[0] == "zip":
-                temp_fname, headers = urlretrieve(install_cmd[1])
-                with zipfile.ZipFile(temp_fname) as _z:
-                    basename = os.path.commonprefix(_z.namelist())
-                    if basename:
-                        extract_to = install_dir
-                    else:
-                        try:
-                            _, params = cgi.parse_header(headers["Content-Disposition"])
-                            remote_fname = params["filename"]
-                        except KeyError:
-                            remote_fname = os.path.basename(install_cmd[1])
-                        basename = re.sub(".zip", "", remote_fname, flags=re.IGNORECASE)
-                        extract_to = os.path.join(install_dir, basename)
-                    www_root = os.path.join(install_dir, basename)
-                    _z.extractall(extract_to)
-            else:
-                raise NotImplementedError(f"지원하지 않는 설치 명령: {install_cmd[0]}")
-
-            if len(install_cmd) > 2 and install_cmd[2]:
-                www_root = os.path.join(www_root, install_cmd[2])
-
-            return www_root
-        except subprocess.CalledProcessError as e:
-            if not was_dir:
-                shutil.rmtree(install_dir)
-            raise Exception(e.output.strip()) from e
-        except Exception as e:
-            if not was_dir:
-                shutil.rmtree(install_dir)
-            raise e
 
     @staticmethod
     def get_basicauth(users):
