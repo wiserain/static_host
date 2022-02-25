@@ -83,7 +83,7 @@
 
     $("body").on('click', '#gen_random_path_btn', function(e) {
         e.preventDefault();
-        $('#location_path').val('/' + uuid4hex());
+        $('#location_path').val('/' + uuid4hex().slice(0,7));
     });
 
     $('input#www_root').change(function() {
