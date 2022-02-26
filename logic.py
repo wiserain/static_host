@@ -1,8 +1,6 @@
-import os
 import json
 import traceback
 from datetime import datetime
-import shutil
 from pathlib import Path
 
 # third-party
@@ -101,11 +99,7 @@ class LogicMain(LogicModuleBase):
                 drules = json.loads(ModelSetting.get("rules"))
 
                 # apply action
-                if act in ["del", "pur"] and lpath in drules:
-                    if act == "pur" and Path(drules[lpath]["www_root"]).is_dir():
-                        shutil.rmtree(drules[lpath]["www_root"])
-                    elif act == "pur" and Path(drules[lpath]["www_root"]).is_file():
-                        os.remove(drules[lpath]["www_root"])
+                if act == "del" and lpath in drules:
                     del drules[lpath]
 
                 if act:

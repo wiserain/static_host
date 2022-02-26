@@ -30,7 +30,6 @@
             </div>
             <p class="card-text text-muted text-truncate" id="other-details"></p>
             <a href="#" class="card-link text-danger" id="remove-item">규칙삭제</a>
-            <!--a href="#" class="card-link text-danger" id="purge-item">대상도 삭제</a-->
         </div>
     </div>
     </div>
@@ -233,9 +232,6 @@
             <span class="text-muted">연결 대상: ${data.www_root}</span><br>
             <span class="text-muted">인증 타입: ${auth_name}</span>
         `;
-        //if (data.www_root.startsWith('http')) {
-        //    template_clone.querySelector("#purge-item").remove();
-        //}
 
         // Append template to dom
         if (newly_added) {
@@ -245,17 +241,16 @@
         }
     }
 
-    $("body").on('click', '#remove-item,#purge-item', function(e) {
+    $("body").on('click', '#remove-item', function(e) {
         e.preventDefault();
         var lpath = $(this).siblings().find('#location-path').text().trim();
         var card = $(this).parent().parent();
-        var action = (($(this).prop('id')).startsWith('remove')) ? 'del' : 'pur';
         $.ajax({
             url: '/' + package_name + '/ajax/rule',
             type: 'POST',
             cache: false,
             data: {
-                'act': action,
+                'act': 'del',
                 'location_path': lpath
             },
             dataType: "json",
