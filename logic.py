@@ -6,12 +6,12 @@ from pathlib import Path
 # third-party
 from werkzeug.exceptions import NotFound
 from werkzeug.security import check_password_hash, generate_password_hash
-from flask import send_from_directory, redirect, request, send_file, render_template, jsonify
+from flask import abort, send_from_directory, redirect, request, send_file, render_template, jsonify
 from flask.views import View
 from flask_login import login_required
 
 # pylint: disable=import-error
-from framework import app, SystemModelSetting
+from framework import app
 from framework.common.plugin import LogicModuleBase
 
 # local
@@ -52,55 +52,52 @@ class LogicMain(LogicModuleBase):
         if sub == "setting":
             arg["package_name"] = package_name
             arg["rule_size"] = len(json.loads(ModelSetting.get("rules")))
-            arg["ddns"] = SystemModelSetting.get("ddns").rstrip("/")
             return render_template(f"{package_name}_{sub}.html", sub=sub, arg=arg)
         return render_template("sample.html", title=f"{package_name} - {sub}")
 
     def process_ajax(self, sub, req):
         try:
-            p = request.form.to_dict() if request.method == "POST" else request.args.to_dict()
+            p = req.form.to_dict() if req.method == "POST" else req.args.to_dict()
             if sub == "add_rule":
-                lpath = p.get("location_path", "")
-                LogicMain.check_lpath(lpath)
+                urlpath = p.get("urlpath-input", "").strip()
+                LogicMain.check_urlpath(urlpath)
 
-                www_root = p.get("www_root", "")
-                if not www_root.startswith(("https://", "http://")):
-                    if not Path(www_root).exists():
+                target = p.get("target", "").strip()
+                if not target.startswith(("https://", "http://")):
+                    if not Path(target).exists():
                         raise ValueError("존재하지 않는 경로입니다.")
 
                 new_rule = {
-                    "location_path": lpath,
-                    "www_root": www_root,
-                    "auth_type": int(p.get("auth_type")),
+                    "location_path": urlpath,
+                    "www_root": target,
+                    "host": p.get("host", "").strip(),
+                    "auth_type": int(p.get("auth-type")),
                     "creation_date": datetime.now().isoformat(),
                 }
 
                 if p.get("auth_type") == "2":
-                    if not (p.get("username") and p.get("password")):
+                    username = p.get("username", "").strip()
+                    password = p.get("password", "").strip()
+                    if not (username and password):
                         raise ValueError("USER/PASS를 입력하세요.")
-                    new_rule.update(
-                        {
-                            "username": p.get("username"),
-                            "password": generate_password_hash(p.get("password")),
-                        }
-                    )
+                    new_rule.update({"username": username, "password": generate_password_hash(password)})
 
-                LogicMain.register_rules({lpath: new_rule})
+                LogicMain.register_rules({urlpath: new_rule})
 
                 drules = json.loads(ModelSetting.get("rules"))
-                drules.update({lpath: new_rule})
+                drules.update({urlpath: new_rule})
                 ModelSetting.set("rules", json.dumps(drules))
 
                 return jsonify({"success": True, "ret": new_rule})
             if sub == "rule":
                 act = p.get("act", "")
                 ret = p.get("ret", "list")
-                lpath = p.get("location_path", "")
+                urlpath = p.get("urlpath", "")
                 drules = json.loads(ModelSetting.get("rules"))
 
                 # apply action
-                if act == "del" and lpath in drules:
-                    del drules[lpath]
+                if act == "del" and urlpath in drules:
+                    del drules[urlpath]
 
                 if act:
                     ModelSetting.set("rules", json.dumps(drules))
@@ -120,10 +117,10 @@ class LogicMain(LogicModuleBase):
                         lrules = lrules[counter : counter + pagesize]
                     return jsonify({"success": True, "ret": lrules, "nomore": len(lrules) != pagesize})
                 raise NotImplementedError(f"Unknown return type: {ret}")
-            if sub == "check_path":
-                path = Path(p.get("path", ""))
+            if sub == "check_target":
+                target = Path(p.get("target", ""))
                 return jsonify(
-                    {"success": True, "exists": path.exists(), "isfile": path.is_file(), "isdir": path.is_dir()}
+                    {"success": True, "exists": target.exists(), "isfile": target.is_file(), "isdir": target.is_dir()}
                 )
             raise NotImplementedError(f"Unknown sub type: {sub}")
         except Exception as e:
@@ -134,47 +131,48 @@ class LogicMain(LogicModuleBase):
     @staticmethod
     def register_rules(drules):
         for _, v in iter(drules.items()):
-            lpath = v["location_path"].rstrip("/")
-            wroot = v["www_root"]
+            urlpath = v["location_path"].rstrip("/")
+            target = v["www_root"]
+            host = v.get("host", "")
             atype = v["auth_type"]
-            endpoint_name = str(lpath.lstrip("/").replace("/", "-"))
-            # endpoint_name = str(lpath)
-            if wroot.startswith(("https://", "http://")):
-                view_func = RedirectView.as_view(endpoint_name, wroot)
-            elif Path(wroot).is_file():
-                view_func = FileView.as_view(endpoint_name, wroot)
+            view_name = str(urlpath.lstrip("/").replace("/", "-"))
+            # view_name = str(lpath)
+            if target.startswith(("https://", "http://")):
+                view_func = RedirectView.as_view(view_name, target, host)
+            elif Path(target).is_file():
+                view_func = FileView.as_view(view_name, target, host)
             else:
-                view_func = StaticView.as_view(endpoint_name, wroot)
+                view_func = StaticView.as_view(view_name, target, host)
             if atype == 1:
                 view_func = login_required(view_func)
             elif atype == 2:
                 basicauth = LogicMain.get_basicauth({v["username"]: v["password"]})
                 view_func = basicauth.login_required(view_func)
-            if Path(wroot).is_dir():
-                app.add_url_rule(lpath + "/<path:path>", view_func=view_func)
-                app.add_url_rule(lpath + "/", view_func=view_func)
+            if Path(target).is_dir():
+                app.add_url_rule(urlpath + "/<path:path>", view_func=view_func)
+                app.add_url_rule(urlpath + "/", view_func=view_func)
             else:
-                app.add_url_rule(lpath, view_func=view_func)
+                app.add_url_rule(urlpath, view_func=view_func)
 
     @staticmethod
-    def check_lpath(location_path):
-        if not location_path.startswith("/"):
-            raise ValueError("Location Path는 /로 시작해야 합니다.")
+    def check_urlpath(urlpath: str):
+        if not urlpath.startswith("/"):
+            raise ValueError("URL Path는 /로 시작해야 합니다.")
 
-        dangerous_lpath = ["/"]
-        lpath = location_path.rstrip("/") + "/"
-        rules = [str(r) for r in app.url_map.iter_rules() if str(r) not in dangerous_lpath]
+        dangerous_path = ["/"]
+        urlpath = urlpath.rstrip("/") + "/"
+        rules = [str(r) for r in app.url_map.iter_rules() if str(r) not in dangerous_path]
         # for rr in sorted(rules):
         #     logger.debug(rr)
-        reserved_lpath = [r.split("<")[0].rstrip("/") + "/" for r in rules if "<" in r]
-        if any(lpath.startswith(r) for r in reserved_lpath):
-            raise ValueError("예약된 Location Path입니다.")
+        reserved_path = [r.split("<")[0].rstrip("/") + "/" for r in rules if "<" in r]
+        if any(urlpath.startswith(r) for r in reserved_path):
+            raise ValueError("예약된 URL Path입니다.")
         exact_rules = [r.rstrip("/") + "/" for r in rules if "<" not in r]
-        if any(lpath == r for r in exact_rules):
-            raise ValueError("이미 등록된 Location Path입니다.")
+        if any(urlpath == r for r in exact_rules):
+            raise ValueError("이미 등록된 URL Path입니다.")
 
     @staticmethod
-    def get_basicauth(users):
+    def get_basicauth(users: dict):
         basicauth = HTTPBasicAuth()
 
         @basicauth.verify_password
@@ -189,16 +187,19 @@ class LogicMain(LogicModuleBase):
 class StaticView(View):
     methods = ["GET"]
 
-    def __init__(self, host_root):
-        self.host_root = Path(host_root)
+    def __init__(self, dirpath: str, host: str):
+        self.dirpath = Path(dirpath)
+        self.host = host
 
     def dispatch_request(self, path="index.html"):
+        if self.host and self.host != request.host:
+            return abort(404)
         try:
             if path == "favicon.ico":
-                return send_from_directory(self.host_root, path, mimetype="image/vnd.microsoft.icon")
-            return send_from_directory(self.host_root, path)
+                return send_from_directory(self.dirpath, path, mimetype="image/vnd.microsoft.icon")
+            return send_from_directory(self.dirpath, path)
         except NotFound as e:
-            current_root = self.host_root.joinpath(path)
+            current_root = self.dirpath.joinpath(path)
             if current_root.is_dir() and not path.endswith("/"):
                 return redirect(path + "/", code=301)
             if path.endswith("/"):
@@ -209,18 +210,24 @@ class StaticView(View):
 class RedirectView(View):
     methods = ["GET"]
 
-    def __init__(self, redirect_to):
-        self.redirect_to = redirect_to
+    def __init__(self, redirect_url: str, host: str):
+        self.redirect_url = redirect_url
+        self.host = host
 
     def dispatch_request(self):
-        return redirect(self.redirect_to)
+        if self.host and self.host != request.host:
+            return abort(404)
+        return redirect(self.redirect_url)
 
 
 class FileView(View):
     methods = ["GET"]
 
-    def __init__(self, filepath):
-        self.filepath = filepath
+    def __init__(self, filepath: str, host: str):
+        self.filepath = Path(filepath)
+        self.host = host
 
     def dispatch_request(self):
+        if self.host and self.host != request.host:
+            return abort(404)
         return send_file(self.filepath, as_attachment=True)

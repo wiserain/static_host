@@ -1,13 +1,14 @@
 {% extends "base.html" %} {% block content %}
 
 <form id="add-rule" name="add-rule">
-    {{ macros.setting_input_text_and_buttons('location_path', 'Location Path', [['gen_random_path_btn', '랜덤 주소']], desc=['요청을 처리할 URL 경로']) }}
-    {{ macros.setting_radio('auth_type', '인증', ['없음', 'SJVA auth', 'BasicAuth']) }}
-    <div id="basic_auth_div" class="collapse">
+    {{ macros.setting_input_text_and_buttons('urlpath-input', 'URL Path', [['gen-random-path-btn', '랜덤 주소']], desc=['요청을 처리할 하위 경로']) }}
+    {{ macros.setting_input_text('host', '호스트', value='', desc=['요청 헤더의 값과 일치할 때만 연결합니다. 비워두면 제한 없음.']) }}
+    {{ macros.setting_radio('auth-type', '인증', ['없음', 'SJVA auth', 'BasicAuth']) }}
+    <div id="basic-auth-div" class="collapse">
         {{ macros.setting_input_text('username', 'USER', value='', col='3') }}
         {{ macros.setting_input_text('password', 'PASS', value='', col='3', type='password') }}
     </div>
-    {{ macros.setting_input_text_and_buttons('www_root', 'WWW Root', [['find_www_root_btn', '찾기']], desc=['연결할 로컬 경로(/로 시작) 혹은 redirect URL(http로 시작)']) }}
+    {{ macros.setting_input_text_and_buttons('target', '연결 대상', [['find-target-btn', '찾기']], desc=['로컬 경로(/로 시작) 혹은 redirect URL(http로 시작)']) }}
     {{ macros.setting_button([['add-rule-btn', '추가하기']]) }}
 </form>
 
@@ -24,7 +25,7 @@
     <div class="card mb-3 shadow-sm">
         <div class="card-body">
             <div class="d-flex w-100 justify-content-between" id="card-title">
-                <h6 class="card-title text-truncate" style="flex: 1;" id="location-path" title="Location Path"></h6>
+                <h6 class="card-title text-truncate" style="flex: 1;" id="urlpath" title="URL Path"></h6>
                 <!--TODO: a tag 적용-->
                 <p class="text-muted" id="creation-date" title=""></p>
             </div>
@@ -49,7 +50,6 @@
 <script type="text/javascript">
     var package_name = "{{arg['package_name']}}";
     var current_rule_size = parseInt("{{arg['rule_size']}}");
-    var ddns = "{{arg['ddns']}}";
 
     // Get references to the dom elements
     var scroller = document.querySelector("#registered-rules");
@@ -59,11 +59,11 @@
 
     var counter = 0;
 
-    $('#auth_type0, #auth_type1, #auth_type2').change(function() {
+    $('#auth-type0, #auth-type1, #auth-type2').change(function() {
         if (this.value == 2) {
-            $('#basic_auth_div').collapse('show');
+            $('#basic-auth-div').collapse('show');
         } else {
-            $('#basic_auth_div').collapse('hide');
+            $('#basic-auth-div').collapse('hide');
         }
     });
 
@@ -80,12 +80,12 @@
         );
     }
 
-    $("body").on('click', '#gen_random_path_btn', function(e) {
+    $("body").on('click', '#gen-random-path-btn', function(e) {
         e.preventDefault();
-        $('#location_path').val('/' + uuid4hex().slice(0,7));
+        $('#urlpath-input').val('/' + uuid4hex().slice(0,7));
     });
 
-    $('input#www_root').change(function() {
+    $('input#target').change(function() {
         if ($(this).val() == "") {
             $(this).parent().next('div').html("<em>연결할 로컬 경로(/로 시작) 혹은 redirect URL(http로 시작)</em>");
             return
@@ -94,11 +94,11 @@
             return
         }
         $.ajax({
-            url: '/' + package_name + '/ajax/check_path',
+            url: `/${package_name}/ajax/check_target`,
             type: "POST",
             cache: false,
             dataType: "json",
-            data: {'path': $(this).val()},
+            data: {'target': $(this).val()},
             context: this,
             success: function(data) {
                 if (data.success) {
@@ -187,13 +187,14 @@
                         type: 'success'
                     });
                     // reset form
-                    $('#location_path').val("");
+                    $('#urlpath-input').val("");
                     $('#username').val("");
                     $('#password').val("");
-                    $('#auth_type0').prop('checked', 'true');
-                    $('#auth_type0').trigger('change');
-                    $('#www_root').val("");
-                    $('#www_root').trigger('change');
+                    $('#host').val("");
+                    $('#auth-type0').prop('checked', 'true');
+                    $('#auth-type0').trigger('change');
+                    $('#target').val("");
+                    $('#target').trigger('change');
                 } else {
                     $.notify('<strong>실패하였습니다.</strong><br>' + data.log, {
                         type: 'warning'
@@ -216,8 +217,8 @@
         // Clone the HTML template
         let template_clone = template.content.cloneNode(true);
         
-        template_clone.querySelector("#location-path").innerHTML = `
-            <a href="${ddns + data.location_path}" target="_blank">${data.location_path}</a>
+        template_clone.querySelector("#urlpath").innerHTML = `
+            <a href="${data.location_path}" target="_blank" rel="noopener noreferrer">${data.location_path}</a>
         `;
         template_clone.querySelector("#creation-date").title = data.creation_date;
         template_clone.querySelector("#creation-date").innerHTML = datetimeFormat.format(datetime);
@@ -230,7 +231,8 @@
         }
         template_clone.querySelector("#other-details").innerHTML = `
             <span class="text-muted">연결 대상: ${data.www_root}</span><br>
-            <span class="text-muted">인증 타입: ${auth_name}</span>
+            <span class="text-muted">호스트: ${data.host ? data.host : '제한 없음'}</span>
+            <span class="text-muted ml-2">인증: ${auth_name}</span>
         `;
 
         // Append template to dom
@@ -243,15 +245,15 @@
 
     $("body").on('click', '#remove-item', function(e) {
         e.preventDefault();
-        var lpath = $(this).siblings().find('#location-path').text().trim();
+        var urlpath = $(this).siblings().find('#urlpath').text().trim();
         var card = $(this).parent().parent();
         $.ajax({
-            url: '/' + package_name + '/ajax/rule',
+            url: `/${package_name}/ajax/rule`,
             type: 'POST',
             cache: false,
             data: {
                 'act': 'del',
-                'location_path': lpath
+                'urlpath': urlpath
             },
             dataType: "json",
             success: function (data) {
@@ -273,11 +275,11 @@
     });
     
 
-    $("body").on('click', '#find_www_root_btn', function(e){
+    $("body").on('click', '#find-target-btn', function(e){
         e.preventDefault();
-        m_select_local_file_modal("WWW Root 경로 선택", '/', false, function(result){
-            document.getElementById("www_root").value = result;
-            document.querySelector('#www_root').dispatchEvent(new Event('change', {}));
+        m_select_local_file_modal("연결 대상 선택", '/', false, function(result){
+            document.getElementById("target").value = result;
+            document.querySelector('#target').dispatchEvent(new Event('change', {}));
         });
     });
 
