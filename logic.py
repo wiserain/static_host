@@ -3,6 +3,7 @@ import json
 import traceback
 from datetime import datetime
 import shutil
+from pathlib import Path
 
 # third-party
 from werkzeug.exceptions import NotFound
@@ -30,7 +31,7 @@ class LogicMain(LogicModuleBase):
             {
                 f"/{package_name}/example": {
                     "location_path": f"/{package_name}/example",
-                    "www_root": os.path.join(os.path.dirname(os.path.abspath(__file__)), "example"),
+                    "www_root": str(Path(__file__).resolve().parent.joinpath("example")),
                     "auth_type": 0,
                     "creation_date": datetime.now().isoformat(),
                 }
@@ -66,7 +67,7 @@ class LogicMain(LogicModuleBase):
 
                 www_root = p.get("www_root", "")
                 if not www_root.startswith(("https://", "http://")):
-                    if not os.path.exists(www_root):
+                    if not Path(www_root).exists():
                         raise ValueError("존재하지 않는 경로입니다.")
 
                 new_rule = {
@@ -101,9 +102,9 @@ class LogicMain(LogicModuleBase):
 
                 # apply action
                 if act in ["del", "pur"] and lpath in drules:
-                    if act == "pur" and os.path.isdir(drules[lpath]["www_root"]):
+                    if act == "pur" and Path(drules[lpath]["www_root"]).is_dir():
                         shutil.rmtree(drules[lpath]["www_root"])
-                    elif act == "pur" and os.path.isfile(drules[lpath]["www_root"]):
+                    elif act == "pur" and Path(drules[lpath]["www_root"]).is_file():
                         os.remove(drules[lpath]["www_root"])
                     del drules[lpath]
 
@@ -126,13 +127,10 @@ class LogicMain(LogicModuleBase):
                     return jsonify({"success": True, "ret": lrules, "nomore": len(lrules) != pagesize})
                 raise NotImplementedError(f"Unknown return type: {ret}")
             if sub == "check_path":
-                path = p.get("path", "")
-                ret = {"success": True, "exists": os.path.exists(path), "isfile": os.path.isfile(path)}
-                if os.path.isdir(path):
-                    ret.update({"isdir": True})
-                else:
-                    ret.update({"isdir": False})
-                return jsonify(ret)
+                path = Path(p.get("path", ""))
+                return jsonify(
+                    {"success": True, "exists": path.exists(), "isfile": path.is_file(), "isdir": path.is_dir()}
+                )
             raise NotImplementedError(f"Unknown sub type: {sub}")
         except Exception as e:
             logger.error("Exception:%s", e)
@@ -149,7 +147,7 @@ class LogicMain(LogicModuleBase):
             # endpoint_name = str(lpath)
             if wroot.startswith(("https://", "http://")):
                 view_func = RedirectView.as_view(endpoint_name, wroot)
-            elif os.path.isfile(wroot):
+            elif Path(wroot).is_file():
                 view_func = FileView.as_view(endpoint_name, wroot)
             else:
                 view_func = StaticView.as_view(endpoint_name, wroot)
@@ -158,7 +156,7 @@ class LogicMain(LogicModuleBase):
             elif atype == 2:
                 basicauth = LogicMain.get_basicauth({v["username"]: v["password"]})
                 view_func = basicauth.login_required(view_func)
-            if os.path.isdir(wroot):
+            if Path(wroot).is_dir():
                 app.add_url_rule(lpath + "/<path:path>", view_func=view_func)
                 app.add_url_rule(lpath + "/", view_func=view_func)
             else:
@@ -198,7 +196,7 @@ class StaticView(View):
     methods = ["GET"]
 
     def __init__(self, host_root):
-        self.host_root = host_root
+        self.host_root = Path(host_root)
 
     def dispatch_request(self, path="index.html"):
         try:
@@ -206,8 +204,8 @@ class StaticView(View):
                 return send_from_directory(self.host_root, path, mimetype="image/vnd.microsoft.icon")
             return send_from_directory(self.host_root, path)
         except NotFound as e:
-            current_root = os.path.join(self.host_root, path)
-            if os.path.isdir(current_root) and not path.endswith("/"):
+            current_root = self.host_root.joinpath(path)
+            if current_root.is_dir() and not path.endswith("/"):
                 return redirect(path + "/", code=301)
             if path.endswith("/"):
                 return send_from_directory(current_root, "index.html")
