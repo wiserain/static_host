@@ -31,7 +31,7 @@ class PlugIn:
 
     plugin_info = {
         "category_name": "tool",
-        "version": "0.2.0",
+        "version": "0.2.1",
         "name": "static_host",
         "home": "https://github.com/wiserain/static_host",
         "more": "https://github.com/wiserain/static_host",

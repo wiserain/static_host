@@ -75,7 +75,7 @@ class LogicMain(LogicModuleBase):
                     "creation_date": datetime.now().isoformat(),
                 }
 
-                if p.get("auth_type") == "2":
+                if p.get("auth-type") == "2":
                     username = p.get("username", "").strip()
                     password = p.get("password", "").strip()
                     if not (username and password):
